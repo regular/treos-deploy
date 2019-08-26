@@ -1,6 +1,6 @@
 {
   "name": "treos-deploy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Deploy Linux OS images to ssb",
   "main": "index.js",
   "bin": {
