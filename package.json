@@ -1,0 +1,24 @@
+{
+  "name": "treos-deploy",
+  "version": "1.0.0",
+  "description": "Deploy Linux OS images to ssb",
+  "main": "index.js",
+  "bin": {
+    "treos-deploy": "bin/deploy.js"
+  },
+  "keywords": [
+    "tre",
+    "treos",
+    "ssb"
+  ],
+  "author": "Jan Bölsche <jan@lagomorph.de> (https://regular.codes/)",
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "human-time": "0.0.2",
+    "multicb": "^1.2.2",
+    "pull-file": "^1.1.0",
+    "pull-stream": "^3.6.14",
+    "scuttlebot-release": "ssbc/scuttlebot-release#11.3.x-fixups",
+    "sodium-native": "2.2.6"
+  }
+}
