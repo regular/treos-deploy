@@ -38,6 +38,9 @@ if (!path) {
 }
 const keys = ssbKeys.loadSync(join(path, '../.tre/secret'))
 
+const remote = getRemote(conf)
+console.error('Remote is', remote)
+
 isClean(sourcePath, (err, clean) => {
   if (err || !clean) {
     if (!force) process.exit(1)
@@ -54,7 +57,7 @@ isClean(sourcePath, (err, clean) => {
 
   const done = multicb({pluck:1, spread: true})
 
-  upload(sourcePath, conf, keys, issue, done())
+  upload(sourcePath, conf, keys, issue, remote, done())
   gitInfo(sourcePath, done())
    
   done( (err, files, git) => {
@@ -85,13 +88,29 @@ isClean(sourcePath, (err, clean) => {
 })
 
 
-function upload(sourcePath, conf, keys, issue, cb) {
+function upload(sourcePath, conf, keys, issue, remote, cb) {
+  const done = multicb({pluck: 1, spread: true})
+
   ssbClient(keys, Object.assign({},
-    conf, { manifest: {blobs: {
-      add: 'sink',
-      has: 'async'
-    }} }
-  ), (err, ssb) => {
+    conf, { manifest: {
+      blobs: {
+        add: 'sink',
+        has: 'async'
+      },
+      gossip: {
+        connect: 'async'
+      }
+    }}
+  ), done())
+
+  ssbClient(keys, Object.assign({},
+    conf, { 
+      remote,
+      manifest: {blobs: { want: 'async' }}
+    }
+  ), done())
+  
+  done( (err, ssb, pub) => {
     if (err) return cb(err)
 
     const keys = 'kernels initcpios diskImages'.split(' ')
@@ -109,7 +128,7 @@ function upload(sourcePath, conf, keys, issue, cb) {
       return acc
     }, [])
 
-    files.push(Object.assign({
+    files.unshift(Object.assign({
       name: 'packages.shrinkwrap',
       type: 'ssb-pacman shrinkwrap file',
     }, issue.shrinkwrap))
@@ -123,7 +142,7 @@ function upload(sourcePath, conf, keys, issue, cb) {
       pull.asyncMap( (f, cb) =>{
         ssb.blobs.has(`&${f.checksum}`, (err, has) =>{
           if (err) return cb(err)
-          console.log(`File ${f.name} does ${has ? '' : 'not'} already exist as a blob`)
+          console.log(`File ${f.name} does ${has ? '' : 'not '}already exist as a blob`)
           f.exists = has
           cb(null, f)
         })
@@ -143,8 +162,31 @@ function upload(sourcePath, conf, keys, issue, cb) {
           })
         )
       }),
+      pull.asyncMap( (f, cb) =>{
+        ssb.gossip.connect(remote, err =>{
+          if (err) return cb(err)
+          console.error('Connected to remote')
+          cb(null, f)
+        })
+      }),
+      pull.asyncMap( (f, cb)=>{
+        const hash = `&${f.checksum}`
+        console.log(`Uploading ${f.name} (${f.size}, ${Math.round(f.size/conf.blobs.max*100)}% of max blob size) hash: ${hash}`)
+        const start = Date.now()
+        pub.blobs.want(hash, (err, succ) =>{
+          if (err) return cb(err)
+          const duration = (Date.now() - start)/1000
+          const throughput = Math.round(f.size/duration)
+          if (!succ) {
+            return cb(new Error('blob.want retunred false'))
+          }
+          console.log(`Uploaded ${f.name} ${succ} ${f.size} bytes in ${duration} seconds, ${throughput} bytes per second`)
+          return cb(null, f)
+        })
+      }),
       pull.collect( (err, result) =>{
         ssb.close()
+        pub.close()
         cb(err, result)
       })
     )
@@ -278,4 +320,25 @@ function gitInfo(cwd, cb) {
 
 function revisionRoot(kv) {
   return kv.value.content.revisionRoot || kv.key
+}
+
+function getRemote(conf) {
+  const path = conf.config
+  let remotes
+  try {
+    remotes = JSON.parse(
+      fs.readFileSync(join(path, '../.tre/remotes'), 'utf8')
+    )
+  } catch(err) {
+    console.error('Unable to read .tre/remotes:', err.message)
+    process.exit(1)
+  }
+
+  let remote = remotes[conf.remote]
+  if (Object.values(remotes).length == 1) remote = Object.values(remotes)[0]
+  if (!remote) {
+    console.error('specify a remote. Available remotes: ' + Object.keys(remotes))
+    process.exit(1)
+  }
+  return remote
 }
